@@ -86,3 +86,4 @@ Runs on `http://localhost:5173`, proxying API calls to the backend.
   Low-confidence predictions are automatically routed to "needs human
   review" instead of returning an unqualified verdict — tune
   `LOW_CONFIDENCE_THRESHOLD` once you have real validation data.
+"# Notes from Pranav" 
