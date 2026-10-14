@@ -80,27 +80,9 @@ Runs on `http://localhost:5173`, proxying API calls to the backend.
 - **Class-imbalance handling**: HAM10000 is ~67% one class (`nv`); training
   uses a weighted sampler so rarer, higher-risk classes aren't drowned out.
 - **Grad-CAM** (`backend/gradcam.py`): visual overlay showing which region of
-  the image drove the prediction — the explainability layer for Q12/Q13 of
-  your Milestone 1 answers.
+  the image drove the prediction.
 - **Triage-tier mapping** (`backend/triage.py`): maps a prediction + confidence
   to one of four tiers (urgent / see soon / routine / needs human review).
   Low-confidence predictions are automatically routed to "needs human
   review" instead of returning an unqualified verdict — tune
   `LOW_CONFIDENCE_THRESHOLD` once you have real validation data.
-- **Mock mode**: backend runs without a trained checkpoint so frontend/backend
-  work isn't blocked on the model team.
-
-## What's still up to your team
-
-- Actually training and tuning the model (backbone choice, epochs, augmentation).
-- Deciding final risk-tier thresholds based on real validation metrics.
-- Auth/rate-limiting if you deploy this publicly.
-- Any UI polish, error states, and mobile responsiveness beyond the basics
-  already in `frontend/src/App.css`.
-- Deployment (a free-tier host works fine for a demo — Render, Railway, etc.).
-
-## Suggested team split (6 people)
-
-See Q17 of the Milestone 1 brief — dataset/preprocessing, model training
-(x2), explainability/evaluation, backend, frontend maps cleanly onto this
-codebase's structure.
