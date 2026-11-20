@@ -1,33 +1,52 @@
-# AI-Assisted Skin Lesion Screening & Triage Assistant
+# SkinSight AI — Skin Lesion Screening & Triage Assistant
 
-Student project scaffold: transfer-learning classifier on HAM10000, Grad-CAM
-explainability, a FastAPI backend, and a React frontend.
+SkinSight AI is a student-built, AI-assisted skin-lesion screening and triage prototype. It combines image classification, Grad-CAM visual explanations, confidence-aware decision rules, and an unfamiliar-image (OOD) check in a web application.
 
-**Not a medical device.** This is a course project prototype and must not be
-used to make real medical decisions.
+> **Important:** This is an academic prototype, not a medical device. It is not validated for clinical use and must not be used to diagnose, rule out, or make treatment decisions about skin conditions. Users should consult a qualified clinician for medical concerns.
 
-## Project layout
+## Project overview
 
+- **Model:** ImageNet-pretrained ResNet-34 fine-tuned for the seven HAM10000 categories.
+- **Explainability:** Grad-CAM heatmap for the class driving the triage decision.
+- **Calibration and triage:** Temperature-scaled probabilities and ordered, validation-tuned rules.
+- **Unfamiliar-image handling:** Mahalanobis-distance check on learned image features, where supported by the trained checkpoint.
+- **Backend:** FastAPI.
+- **Frontend:** React + Vite.
+- **Dataset:** HAM10000; evaluation described in the accompanying academic report uses the official ISIC 2018 Task 3 test set.
+
+The application returns one of four project-defined tiers: **Urgent**, **Needs human review**, **See doctor soon**, or **Routine**. These are experimental project labels, not clinical protocols.
+
+## Repository structure
+
+```text
+skin-lesion-triage/
+├── backend/
+│   ├── main.py
+│   ├── model_utils.py
+│   ├── gradcam.py
+│   ├── ood.py
+│   ├── triage.py
+│   ├── verify_model.py
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   ├── extras/tests/
+│   ├── package.json
+│   ├── package-lock.json
+│   └── vite.config.js
+├── training/
+│   ├── dataset.py
+│   ├── labels.py
+│   ├── train.py
+│   └── evaluate_test_set.py
+├── docs/
+│   ├── SkinSight_AI_IEEE_Report.pdf
+│   └── SkinSight_AI_Presentation_Script.pdf
+├── .gitignore
+└── README.md
 ```
-training/     dataset loading, class-imbalance handling, training script
-backend/      FastAPI app: /predict endpoint (classification + Grad-CAM + triage)
-frontend/     React (Vite) upload UI
-```
 
-## How the pieces fit together
-
-1. **training/** produces `training/checkpoints/best_model.pt`.
-2. **backend/** loads that checkpoint and serves predictions. If no
-   checkpoint exists yet, it runs in **mock mode** with randomly-initialized
-   weights — this lets the backend/frontend team build and test the full
-   request/response flow before the model is trained. Mock mode turns off
-   automatically the moment a real checkpoint appears.
-3. **frontend/** talks to the backend at `/api/predict` (proxied to
-   `http://localhost:8000` in dev).
-
-This split means all 6 of you can work in parallel from day one — nobody is
-blocked waiting on someone else's piece.
-
+## Run the application locally
 ## Setup
 
 ### 1. Get the dataset (for the training track)
@@ -52,14 +71,14 @@ python train.py --data-dir ../data --epochs 15 --backbone resnet34
 
 Needs a GPU and internet access (to download ImageNet-pretrained weights) —
 use Google Colab if nobody has a local GPU. Saves
-`training/checkpoints/best_model.pt`.
+`training/checkpoints/skinsight_final_v2.pt`.
 
 ### 3. Run the backend
 
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn main:app --reload
+python -m uvicorn main:app --reload
 ```
 
 Runs on `http://localhost:8000`. Check `http://localhost:8000/health` — it
@@ -73,17 +92,22 @@ npm install
 npm run dev
 ```
 
-Runs on `http://localhost:5173`, proxying API calls to the backend.
+Open the local URL printed by Vite (normally `http://localhost:5173`). The Vite development server proxies `/api` requests to `http://localhost:8000`.
 
-## What's already implemented
+## Model and evaluation notes
 
-- **Class-imbalance handling**: HAM10000 is ~67% one class (`nv`); training
-  uses a weighted sampler so rarer, higher-risk classes aren't drowned out.
-- **Grad-CAM** (`backend/gradcam.py`): visual overlay showing which region of
-  the image drove the prediction.
-- **Triage-tier mapping** (`backend/triage.py`): maps a prediction + confidence
-  to one of four tiers (urgent / see soon / routine / needs human review).
-  Low-confidence predictions are automatically routed to "needs human
-  review" instead of returning an unqualified verdict — tune
-  `LOW_CONFIDENCE_THRESHOLD` once you have real validation data.
-"# Notes from Pranav" 
+The academic report describes the final experiment: a lesion-level HAM10000 train/validation split, ResNet-34 transfer learning, temperature scaling, validation-tuned triage thresholds, Grad-CAM, and an OOD check. The report also documents limitations and failure cases.
+
+**Reproducibility note:** The checked-in `training/train.py` and `training/evaluate_test_set.py` are baseline/scaffold scripts; they are not the complete final experiment pipeline used to produce the reported v2 checkpoint and metrics. Do not use those scripts to claim that the report's final results can be reproduced end-to-end. The final checkpoint was produced by the v2 training workflow referenced in the project materials. The checkpoint itself is excluded from Git history.
+
+## Academic materials
+
+- `docs/SkinSight_AI_IEEE_Report.pdf` — project methodology, evaluation and limitations.
+
+## Privacy and safety
+
+The project is intended for coursework and demonstration. Do not upload identifiable or sensitive patient images. Do not deploy this prototype for public medical use. Any real-world use would require clinical validation, appropriate privacy/security controls, regulatory review, and oversight by qualified medical professionals.
+
+## License
+
+No open-source license is currently specified. Unless a license is added, normal copyright restrictions apply.
