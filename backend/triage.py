@@ -9,13 +9,20 @@ SkinSight_AI_Training_v2.ipynb (validation + held-out ISIC 2018 test set),
 so the numbers in the report describe what this code actually does:
 
   1. Melanoma is the top class, OR P(melanoma) >= the melanoma threshold
-        -> urgent_care            (checked BEFORE the low-confidence rule, for safety)
-  2. Top-class probability < confidence floor
-        -> flag_for_human_review
-  3. Top class is BCC / AKIEC, OR P(BCC) >= the BCC threshold
+        -> urgent_care            (checked BEFORE the rules below, for safety)
+  2. The photo is unlike the training images (out-of-distribution, see ood.py)
+        -> flag_for_human_review  (reason: out_of_distribution)
+  3. Top-class probability < confidence floor
+        -> flag_for_human_review  (reason: low_confidence)
+  4. Top class is BCC / AKIEC, OR P(BCC) >= the BCC threshold
         -> see_doctor_soon
-  4. Everything else
+  5. Everything else
         -> routine_monitor
+
+Rule 2 is the only change from the evaluated notebook pipeline. It can only move a result
+from "see doctor soon" / "routine" to "needs human review"; it never overrides rule 1, so an
+unfamiliar-looking photo can never hide a melanoma flag. When no OOD data is available (older
+checkpoints, mock mode) rule 2 never fires and the behaviour is identical to before.
 
 The thresholds and the floor are NOT hard-coded here: they are tuned in the
 notebook (on validation data only) and travel inside the checkpoint file
@@ -67,6 +74,13 @@ TIER_MESSAGES = {
     TIER_REVIEW: "The model isn't confident enough to give a reliable read on this image. Please have it reviewed by a clinician directly.",
 }
 
+# Shown instead of TIER_MESSAGES[TIER_REVIEW] when the photo looks unlike the training images.
+OOD_MESSAGE = (
+    "This photo looks different from the close-up lesion images this model learned from, so its answer "
+    "would not be reliable. Try a sharper, closer photo in even light. If the spot worries you or has "
+    "changed, have a clinician look at it directly."
+)
+
 
 @dataclass
 class TriageResult:
@@ -75,7 +89,7 @@ class TriageResult:
     predicted_class_code: str
     predicted_class_name: str
     confidence: float
-    reason: str                 # mel_top | mel_threshold | low_confidence | bcc_akiec | bcc_threshold | low_risk_class
+    reason: str                 # mel_top | mel_threshold | out_of_distribution | low_confidence | bcc_akiec | bcc_threshold | low_risk_class
     melanoma_probability: float
 
 
@@ -91,10 +105,12 @@ def triage(
     floor: float = DEFAULT_FLOOR,
     thresholds: Optional[Dict[str, float]] = None,
     base_tier: Optional[Dict[str, str]] = None,
+    out_of_distribution: bool = False,
 ) -> TriageResult:
     """
     probs: 1-D array of CALIBRATED class probabilities, in CLASS_CODES order.
     floor / thresholds / base_tier: from the checkpoint (see module docstring).
+    out_of_distribution: True when ood.py says the photo is unlike the training images.
     """
     thr = thresholds or DEFAULT_THRESHOLDS
     base = base_tier or DEFAULT_BASE_TIER
@@ -117,6 +133,9 @@ def triage(
                 "melanoma is high enough that a dermatologist check is recommended as a precaution. "
                 "See a dermatologist as soon as you can."
             )
+    elif out_of_distribution:
+        tier, reason = TIER_REVIEW, "out_of_distribution"
+        message = OOD_MESSAGE
     elif conf < floor:
         tier, reason = TIER_REVIEW, "low_confidence"
     elif base[code] == TIER_SOON or p_bcc >= thr["bcc"]:

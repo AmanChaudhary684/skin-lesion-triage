@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react'
 import PhotoGuide from './PhotoGuide.jsx'
+import RiskQuestions from './RiskQuestions.jsx'
 import { AlertIcon, CheckIcon, UploadIcon } from './Icons.jsx'
 import { formatBytes } from '../lib/format.js'
 
 export const ACCEPT = 'image/jpeg,image/png,image/webp'
 
-export default function UploadCard({ photo, notes, assessing, loading, error, onFile, onAnalyze }) {
+export default function UploadCard({ photo, notes, assessing, loading, error, onFile, onAnalyze, answers, onAnswers }) {
   const inputRef = useRef(null)
   const [dragging, setDragging] = useState(false)
 
@@ -90,6 +91,7 @@ export default function UploadCard({ photo, notes, assessing, loading, error, on
               </ul>
             </div>
           </div>
+          {answers && onAnswers && <RiskQuestions answers={answers} onChange={onAnswers} />}
           <details className="tips">
             <summary>Photo tips</summary>
             <PhotoGuide />

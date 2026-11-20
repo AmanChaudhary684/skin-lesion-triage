@@ -55,12 +55,21 @@ function newId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-export function buildCheck(result, { thumb, heat, aspect }) {
+// `extra` (optional): { answers, tier, raisedFrom }. `tier` is the tier the person was SHOWN (the model's tier,
+// possibly raised by their answers); `modelTier` keeps what the model said. Older saved checks lack these fields.
+export function buildCheck(result, { thumb, heat, aspect }, extra = {}) {
+  const answers = extra.answers ?? {}
   return {
     id: newId(),
     ts: Date.now(),
     label: '',
-    tier: result.triage_tier,
+    tier: extra.tier ?? result.triage_tier,
+    modelTier: result.triage_tier,
+    raisedFrom: extra.raisedFrom ?? null,
+    site: answers.site || '',
+    changed: answers.changed || '',
+    symptoms: answers.symptoms || '',
+    ood: Boolean(result.out_of_distribution),
     reason: result.triage_reason ?? null,
     classCode: result.predicted_class_code,
     className: result.predicted_class_name,

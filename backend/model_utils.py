@@ -34,6 +34,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", "training"))
 from labels import CLASS_CODES  # noqa: E402
 
 from gradcam import GradCAM, overlay_heatmap
+from ood import mahalanobis_score
 from triage import (
     DEFAULT_BASE_TIER, DEFAULT_FLOOR, DEFAULT_THRESHOLDS, MEL, tier_map_from_notebook, triage,
 )
@@ -80,6 +81,8 @@ class LesionModel:
         self.img_size, self.cache_size = 224, 256
         mean, std = _IMAGENET_MEAN, _IMAGENET_STD
         self.source_run = None
+        self.ood = None          # filled from the checkpoint if it carries an "ood" entry (see ood.py)
+        self._feat = None        # feature vector captured by the avgpool hook during the last forward pass
         ckpt = None
 
         if self.mock_mode:
@@ -100,17 +103,23 @@ class LesionModel:
             self.cache_size = int(ckpt["cache_size"])
             mean, std = ckpt["mean"], ckpt["std"]
             self.source_run = ckpt.get("source_run")
+            self.ood = self._read_ood(ckpt.get("ood"), arch)
 
         self.model, self.target_layer = build_network(arch)
         if ckpt is not None:
             self.model.load_state_dict(ckpt["state_dict"])  # strict: raises if anything is off
+            ood_note = (f"OOD check ON (threshold={self.ood['threshold']:.2f})" if self.ood
+                        else "OOD check OFF (checkpoint has no 'ood' entry)")
             print(
                 f"[model_utils] Loaded {self.source_run or 'checkpoint'} ({arch}) | "
-                f"temperature={self.temperature:.3f} | thresholds={self.thresholds} | floor={self.floor}"
+                f"temperature={self.temperature:.3f} | thresholds={self.thresholds} | floor={self.floor} | "
+                f"{ood_note}"
             )
         self.model.to(self.device)
         self.model.eval()  # BatchNorm/Dropout in inference mode -- must happen before ANY forward pass
         self.gradcam = GradCAM(self.model, self.target_layer)
+        # Capture the pooled feature vector (the input of the final classifier) for the OOD check.
+        self.model.avgpool.register_forward_hook(self._save_features)
 
         # Same preprocessing as training: resize to cache_size, then to img_size, then ImageNet-normalise.
         self._to_tensor = transforms.Compose([
@@ -118,6 +127,26 @@ class LesionModel:
             transforms.ToTensor(),
             transforms.Normalize(mean, std),
         ])
+
+    def _save_features(self, module, inputs, output):
+        self._feat = output.detach().flatten(1).cpu()
+
+    @staticmethod
+    def _read_ood(entry, arch: str):
+        """Validate the optional "ood" entry of the bundle. Returns None if the bundle has none."""
+        if entry is None:
+            return None
+        if entry.get("method") != "mahalanobis" or entry.get("feature_layer") != "avgpool":
+            raise RuntimeError(f"Unsupported OOD entry in checkpoint: {entry.get('method')!r} on "
+                               f"{entry.get('feature_layer')!r}")
+        means, precision = entry["class_means"], entry["precision"]
+        dim = 512 if arch == "resnet34" else 1280          # feature size of the supported networks
+        if tuple(means.shape) != (len(CLASS_CODES), dim) or tuple(precision.shape) != (dim, dim):
+            raise RuntimeError(
+                f"OOD entry has the wrong shape for {arch}: class_means {tuple(means.shape)}, "
+                f"precision {tuple(precision.shape)} (expected ({len(CLASS_CODES)}, {dim}) and ({dim}, {dim}))."
+            )
+        return dict(class_means=means, precision=precision, threshold=float(entry["threshold"]))
 
     @staticmethod
     def _read_bundle() -> dict:
@@ -151,12 +180,20 @@ class LesionModel:
         input_tensor = self._preprocess(image).unsqueeze(0).to(self.device)
 
         # 1) classify + calibrate (temperature scaling) -- no gradients needed
+        self._feat = None
         with torch.no_grad():
             logits = self.model(input_tensor)
         probs = F.softmax(logits / self.temperature, dim=1).squeeze(0).cpu().numpy()
 
-        # 2) triage with the thresholds/floor tuned in the notebook
-        result = triage(probs, self.floor, self.thresholds, self.base_tier)
+        # 1b) is this photo unlike the training images? (uses the features captured in the forward pass above;
+        #     must be read BEFORE the Grad-CAM pass below, which overwrites them)
+        ood_score, is_ood = None, False
+        if self.ood is not None and self._feat is not None:
+            ood_score = float(mahalanobis_score(self._feat, self.ood["class_means"], self.ood["precision"])[0])
+            is_ood = ood_score > self.ood["threshold"]
+
+        # 2) triage with the thresholds/floor tuned in the notebook (+ the OOD rule)
+        result = triage(probs, self.floor, self.thresholds, self.base_tier, out_of_distribution=is_ood)
 
         # 3) Grad-CAM for the class that DROVE the decision. Normally the top class, but if the tier is
         #    "urgent" only because P(melanoma) passed its threshold, explain the melanoma score instead.
@@ -182,6 +219,11 @@ class LesionModel:
                 CLASS_CODES[i]: round(float(p), 4) for i, p in enumerate(probs)
             },
             "melanoma_probability": round(result.melanoma_probability, 4),
+            # OOD check: False/None when the checkpoint has no OOD data (then ood_checked is False).
+            "ood_checked": self.ood is not None,
+            "out_of_distribution": bool(is_ood),
+            "ood_score": None if ood_score is None else round(ood_score, 2),
+            "ood_threshold": None if self.ood is None else round(self.ood["threshold"], 2),
             "triage_tier": result.tier,
             "triage_reason": result.reason,
             "triage_message": result.message,

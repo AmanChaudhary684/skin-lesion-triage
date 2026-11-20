@@ -22,6 +22,15 @@ export const TIERS = {
   },
 }
 
+// How cautious each tier is, lowest to highest. "Needs a clinician" sits above routine because it
+// stops short of reassuring the person, but below "book an appointment".
+export const TIER_RANK = {
+  routine_monitor: 0,
+  flag_for_human_review: 1,
+  see_doctor_soon: 2,
+  urgent_care: 3,
+}
+
 // Unknown tier from the backend: fall back to the most cautious, non-alarming option.
 export function tierInfo(key) {
   return TIERS[key] ?? TIERS.flag_for_human_review

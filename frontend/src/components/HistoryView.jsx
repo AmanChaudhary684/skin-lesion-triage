@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Probabilities from './Probabilities.jsx'
 import { TIER_ICONS } from './Icons.jsx'
 import { tierInfo } from '../lib/tiers.js'
+import { answerRows, hasAnyAnswer, siteLabel } from '../lib/risk.js'
 import { daysBetween, formatDate, pct } from '../lib/format.js'
 
 function Compare({ a, b, onClose }) {
@@ -9,8 +10,16 @@ function Compare({ a, b, onClose }) {
   const gap = days === 0 ? 'on the same day' : `${days} day${days === 1 ? '' : 's'} apart`
   const rows = [
     ['Suggested next step', (it) => tierInfo(it.tier).label],
-    ['Best match', (it) => `${it.className} ${pct(it.confidence)}`],
+    [
+      'Best match',
+      (it) => `${it.className} ${pct(it.confidence)}${it.ood ? ' (unfamiliar photo, not reliable)' : ''}`,
+    ],
     ['Chance of melanoma', (it) => (it.melanoma == null ? 'Not recorded' : pct(it.melanoma, 1))],
+    ['Body site', (it) => siteLabel(it.site) || 'Not recorded'],
+    [
+      'You said it had changed',
+      (it) => ({ yes: 'Yes', no: 'No', unsure: 'Not sure' })[it.changed] ?? 'Not recorded',
+    ],
   ]
   return (
     <section className="compare" aria-labelledby="compare-heading">
@@ -90,20 +99,41 @@ function CheckItem({ item, selected, onToggle, onLabel, onRemove }) {
           onBlur={(e) => e.target.value !== item.label && onLabel(item.id, e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         />
-        <p className="check-date">{when}</p>
+        <p className="check-date">
+          {when}
+          {item.site ? ` · ${siteLabel(item.site)}` : ''}
+        </p>
         <p className="check-result">
           <span className={`chip chip-${tier.tone}`}>
             <TierIcon /> {tier.short}
           </span>
           <span>
-            {item.className} {pct(item.confidence)}
-            {item.lowConfidence ? ', low confidence' : ''}
+            {item.ood && item.modelTier !== 'urgent_care'
+              ? 'Unfamiliar photo, so the model’s guess is not reliable'
+              : `${item.className} ${pct(item.confidence)}${item.lowConfidence ? ', low confidence' : ''}${
+                  item.ood ? ', unfamiliar photo' : ''
+                }`}
           </span>
           {item.demo && <span className="chip chip-demo">Demo model</span>}
         </p>
         <details className="check-details">
           <summary>Show details</summary>
           {item.message && <p className="why-text">{item.message}</p>}
+          {item.raisedFrom && (
+            <p className="why-text">
+              Raised from “{tierInfo(item.raisedFrom).label}” because of the answers you gave.
+            </p>
+          )}
+          {hasAnyAnswer(item) && (
+            <dl className="answers">
+              {answerRows(item).map(([q, a]) => (
+                <div key={q}>
+                  <dt>{q}</dt>
+                  <dd>{a}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
           {item.heat && (
             <div className="frame frame-small">
               <img src={item.heat} alt="Heatmap saved with this check" style={{ aspectRatio: String(item.aspect || 1) }} />

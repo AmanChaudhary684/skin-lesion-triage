@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import UploadCard from './components/UploadCard.jsx'
 import ResultCard from './components/ResultCard.jsx'
 import HistoryView from './components/HistoryView.jsx'
@@ -6,6 +6,7 @@ import PrintSheet from './components/PrintSheet.jsx'
 import { Mark } from './components/Icons.jsx'
 import { analyzeImageUrl } from './lib/imageQuality.js'
 import { makeThumb } from './lib/images.js'
+import { EMPTY_ANSWERS, applyRedFlags } from './lib/risk.js'
 import {
   addCheck,
   buildCheck,
@@ -38,6 +39,7 @@ export default function App() {
   const [saving, setSaving] = useState(false)
   const [history, setHistory] = useState(() => loadHistory())
   const [health, setHealth] = useState('checking')
+  const [answers, setAnswers] = useState(EMPTY_ANSWERS) // optional questions about the spot
 
   // Guards against a slow image check finishing after a newer photo was chosen.
   const assessToken = useRef(0)
@@ -69,6 +71,21 @@ export default function App() {
     if (prev && prev !== photo?.url) URL.revokeObjectURL(prev)
   }, [photo])
   useEffect(() => () => photoUrlRef.current && URL.revokeObjectURL(photoUrlRef.current), [])
+
+  // The model's tier, raised (never lowered) if the person reported a red flag. See lib/risk.js.
+  const assessed = useMemo(
+    () => (result ? applyRedFlags(result.triage_tier, answers) : null),
+    [result, answers],
+  )
+
+  // Earlier saved checks of the same body site, for the summary sheet (not the one being shown now).
+  const earlier = useMemo(
+    () =>
+      answers.site
+        ? history.filter((h) => h.site === answers.site && h.id !== savedId).slice(0, 5)
+        : [],
+    [history, answers.site, savedId],
+  )
 
   const resetOutcome = () => {
     setResult(null)
@@ -152,7 +169,11 @@ export default function App() {
         setSaveNote('Could not make a small copy of the photo, so nothing was saved.')
         return
       }
-      const check = buildCheck(result, { thumb, heat, aspect: photo.aspect })
+      const check = buildCheck(
+        result,
+        { thumb, heat, aspect: photo.aspect },
+        { answers, tier: assessed.tier, raisedFrom: assessed.from },
+      )
       const out = addCheck(history, check)
       if (!out.ok) {
         setSaveNote('This browser would not let us save. Private mode or a full disk can cause that.')
@@ -175,6 +196,7 @@ export default function App() {
     setPhoto(null)
     setNotes([])
     setAssessing(false)
+    setAnswers(EMPTY_ANSWERS)
     resetOutcome()
     window.scrollTo?.({ top: 0 })
   }
@@ -250,12 +272,15 @@ export default function App() {
                   error={error}
                   onFile={handleFile}
                   onAnalyze={handleAnalyze}
+                  answers={answers}
+                  onAnswers={setAnswers}
                 />
               )}
 
               {result && photo && (
                 <ResultCard
                   result={result}
+                  assessed={assessed}
                   photoUrl={photo.url}
                   aspect={photo.aspect}
                   savedId={savedId}
@@ -287,7 +312,15 @@ export default function App() {
       </div>
 
       {result && photo && (
-        <PrintSheet result={result} photoUrl={photo.url} aspect={photo.aspect} date={Date.now()} />
+        <PrintSheet
+          result={result}
+          assessed={assessed}
+          answers={answers}
+          earlier={earlier}
+          photoUrl={photo.url}
+          aspect={photo.aspect}
+          date={Date.now()}
+        />
       )}
     </>
   )
